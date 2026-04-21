@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OPAQUEFILM AI TERMINAL</title>
+
+<style>
+body {
+    background: #000;
+    color: #33ff88;
+    font-family: "Courier New", monospace;
+    padding: 40px;
+}
+
+#terminal {
+    max-width: 800px;
+    margin: auto;
+}
+
+input {
+    width: 100%;
+    background: black;
+    border: none;
+    border-bottom: 1px solid #33ff88;
+    color: #33ff88;
+    font-size: 18px;
+    outline: none;
+}
+
+.output {
+    margin-top: 20px;
+    white-space: pre-wrap;
+}
+</style>
+</head>
+
+<body>
+
+<div id="terminal">
+    <h2>> OPAQUEFILM AI TERMINAL</h2>
+    <p>> Ask for a playlist (e.g. "90s alternative rock")</p>
+    <input id="input" placeholder="> " autofocus />
+    <div class="output" id="output"></div>
+</div>
+
+<script>
+const JELLYFIN_URL = "http://NEUROSTATION:8097";
+const API_KEY = "bc508d736a6c40f283970500281cb782";
+
+const input = document.getElementById("input");
+const output = document.getElementById("output");
+
+input.addEventListener("keydown", async (e) => {
+    if (e.key === "Enter") {
+        const prompt = input.value;
+        input.value = "";
+
+        output.innerText += `\n> ${prompt}\n`;
+
+        const filters = parsePrompt(prompt);
+        output.innerText += `Parsing request...\n`;
+
+        try {
+            const items = await fetchItems(filters);
+            output.innerText += `Found ${items.length} items\n`;
+
+            if (items.length === 0) {
+                output.innerText += `No results found.\n`;
+                return;
+            }
+
+            const playlistName = prompt;
+            await createPlaylist(playlistName, items);
+
+            output.innerText += `Playlist "${playlistName}" created.\n`;
+        } catch (err) {
+            output.innerText += `Error: ${err.message}\n`;
+        }
+    }
+});
+
+function parsePrompt(prompt) {
+    const p = prompt.toLowerCase();
+
+    let genre = null;
+    let startYear = null;
+    let endYear = null;
+
+    if (p.includes("rock")) genre = "Rock";
+    if (p.includes("alternative")) genre = "Alternative";
+
+    if (p.includes("90")) {
+        startYear = 1990;
+        endYear = 1999;
+    }
+
+    if (p.includes("80")) {
+        startYear = 1980;
+        endYear = 1989;
+    }
+
+    return { genre, startYear, endYear };
+}
+
+async function fetchItems(filters) {
+    const url = `${JELLYFIN_URL}/Items?IncludeItemTypes=Audio&Recursive=true`;
+
+    const res = await fetch(url, {
+        headers: {
+            "X-Emby-Token": API_KEY
+        }
+    });
+
+    const data = await res.json();
+    let items = data.Items;
+
+    if (filters.genre) {
+        items = items.filter(i =>
+            i.Genres && i.Genres.includes(filters.genre)
+        );
+    }
+
+    if (filters.startYear) {
+        items = items.filter(i =>
+            i.ProductionYear >= filters.startYear &&
+            i.ProductionYear <= filters.endYear
+        );
+    }
+
+    return items.slice(0, 50); // limit
+}
+
+async function createPlaylist(name, items) {
+    const ids = items.map(i => i.Id).join(",");
+
+    const url = `${JELLYFIN_URL}/Playlists?Name=${encodeURIComponent(name)}&Ids=${ids}`;
+
+    await fetch(url, {
+        method: "POST",
+        headers: {
+            "X-Emby-Token": API_KEY
+        }
+    });
+}
+</script>
+
+</body>
+</html>
