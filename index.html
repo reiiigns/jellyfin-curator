@@ -1,51 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>OPAQUEFILM AI TERMINAL</title>
-
-<style>
-body {
-    background: #000;
-    color: #33ff88;
-    font-family: "Courier New", monospace;
-    padding: 40px;
-}
-
-#terminal {
-    max-width: 800px;
-    margin: auto;
-}
-
-input {
-    width: 100%;
-    background: black;
-    border: none;
-    border-bottom: 1px solid #33ff88;
-    color: #33ff88;
-    font-size: 18px;
-    outline: none;
-}
-
-.output {
-    margin-top: 20px;
-    white-space: pre-wrap;
-}
-</style>
-</head>
-
-<body>
-
-<div id="terminal">
-    <h2>> OPAQUEFILM AI TERMINAL</h2>
-    <p>> Ask for a playlist (e.g. "90s alternative rock")</p>
-    <input id="input" placeholder="> " autofocus />
-    <div class="output" id="output"></div>
-</div>
-
 <script>
-const JELLYFIN_URL = "http://NEUROSTATION:8097";
-const API_KEY = "bc508d736a6c40f283970500281cb782";
+const JELLYFIN_URL = "http://YOUR_TAILSCALE_IP:8097";
+const API_KEY = "YOUR_JELLYFIN_API_KEY";
+const OPENROUTER_API_KEY = "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";
 
 const input = document.getElementById("input");
 const output = document.getElementById("output");
@@ -55,51 +11,69 @@ input.addEventListener("keydown", async (e) => {
         const prompt = input.value;
         input.value = "";
 
-        output.innerText += `\n> ${prompt}\n`;
-
-        const filters = parsePrompt(prompt);
-        output.innerText += `Parsing request...\n`;
+        log(`> ${prompt}`);
+        log("Thinking...");
 
         try {
-            const items = await fetchItems(filters);
-            output.innerText += `Found ${items.length} items\n`;
+            const filters = await parseWithAI(prompt);
+            log("Parsed:");
+            log(JSON.stringify(filters, null, 2));
 
-            if (items.length === 0) {
-                output.innerText += `No results found.\n`;
+            const items = await fetchItems(filters);
+            log(`Found ${items.length} items`);
+
+            if (!items.length) {
+                log("No results found.");
                 return;
             }
 
-            const playlistName = prompt;
-            await createPlaylist(playlistName, items);
-
-            output.innerText += `Playlist "${playlistName}" created.\n`;
+            await createPlaylist(prompt, items);
+            log(`Playlist "${prompt}" created.`);
         } catch (err) {
-            output.innerText += `Error: ${err.message}\n`;
+            log("Error: " + err.message);
         }
     }
 });
 
-function parsePrompt(prompt) {
-    const p = prompt.toLowerCase();
+function log(text) {
+    output.innerText += text + "\n";
+}
 
-    let genre = null;
-    let startYear = null;
-    let endYear = null;
+async function parseWithAI(prompt) {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            model: "mistralai/mistral-7b-instruct",
+            messages: [
+                {
+                    role: "system",
+                    content: `
+Convert user request into JSON with:
+genre, subgenre, startYear, endYear, mood
 
-    if (p.includes("rock")) genre = "Rock";
-    if (p.includes("alternative")) genre = "Alternative";
+Return ONLY JSON.
+`
+                },
+                {
+                    role: "user",
+                    content: prompt
+                }
+            ]
+        })
+    });
 
-    if (p.includes("90")) {
-        startYear = 1990;
-        endYear = 1999;
+    const data = await res.json();
+    const text = data.choices[0].message.content;
+
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new Error("AI parsing failed");
     }
-
-    if (p.includes("80")) {
-        startYear = 1980;
-        endYear = 1989;
-    }
-
-    return { genre, startYear, endYear };
 }
 
 async function fetchItems(filters) {
@@ -116,7 +90,7 @@ async function fetchItems(filters) {
 
     if (filters.genre) {
         items = items.filter(i =>
-            i.Genres && i.Genres.includes(filters.genre)
+            i.Genres?.includes(filters.genre)
         );
     }
 
@@ -127,7 +101,7 @@ async function fetchItems(filters) {
         );
     }
 
-    return items.slice(0, 50); // limit
+    return items.slice(0, 50);
 }
 
 async function createPlaylist(name, items) {
@@ -143,6 +117,3 @@ async function createPlaylist(name, items) {
     });
 }
 </script>
-
-</body>
-</html>
